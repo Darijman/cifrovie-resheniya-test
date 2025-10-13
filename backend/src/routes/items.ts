@@ -9,7 +9,7 @@ const addQueue = new RequestQueue('add', 10_000);   // каждые 10 секу�
 const updateQueue = new RequestQueue('update', 1_000); // каждую секунду
 
 // Получить элементы с фильтрацией и пагинацией
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   const { page = '1', limit = '20', filter = '', selected = 'false' } = req.query;
 
   const isSelected = selected === 'true';
@@ -24,11 +24,10 @@ router.get('/', (req, res) => {
   const start = (pageNum - 1) * limitNum;
   const end = start + limitNum;
 
-  res.json({
-    total: filtered.length,
-    items: filtered.slice(start, end),
-  });
+  const items = filtered.slice(start, end);
+  res.json(items);
 });
+
 
 router.post('/add', (req, res) => {
   const { id } = req.body as Item;

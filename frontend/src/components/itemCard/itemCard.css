@@ -1,0 +1,8 @@
+.item_card {
+  background-color: var(--background-color);
+  padding: 20px;
+  border-radius: 10px;
+  &:hover {
+    background-color: var(--hover-color);
+  }
+}

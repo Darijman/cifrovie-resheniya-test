@@ -1,0 +1,64 @@
+.theme-toggle-button {
+  transition: transform 0.3s ease-in-out;
+  border: none;
+  background-color: transparent;
+  cursor: pointer;
+  &:hover {
+    opacity: 0.7;
+  }
+}
+
+.theme-toggle-button:active {
+  transform: scale(0.95);
+}
+
+.theme-toggle-wrapper {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  background: transparent;
+}
+
+.theme-icon {
+  position: absolute;
+  inset: 0;
+  left: 0px;
+  top: 0px;
+  width: 30px;
+  height: 30px;
+  transition: all 0.5s ease;
+  transform-origin: center;
+}
+
+.theme-icon.preload {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: none;
+}
+
+.sun-icon {
+  opacity: 0;
+  transform: scale(1) rotate(0deg);
+}
+
+.moon-icon {
+  opacity: 1;
+  transform: scale(1) rotate(0deg);
+}
+
+.invisible {
+  opacity: 0;
+  pointer-events: none;
+}
+
+[data-theme='dark'] {
+  .sun-icon {
+    opacity: 1;
+    transform: scale(1) rotate(360deg);
+  }
+
+  .moon-icon {
+    opacity: 0;
+    transform: scale(1) rotate(180deg);
+  }
+}
