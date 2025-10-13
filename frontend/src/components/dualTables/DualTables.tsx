@@ -4,12 +4,13 @@ import React, { useEffect, useState } from 'react';
 import { DndContext, closestCenter, DragEndEvent, PointerSensor, useSensor, useSensors, DragOverlay } from '@dnd-kit/core';
 import { SortableContext, useSortable, arrayMove, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Card, Spin, Typography } from 'antd';
-import InfiniteScroll from 'react-infinite-scroll-component';
+import { Button, Card, Input, message, Spin, Typography } from 'antd';
 import { Item } from '@/interfaces/Item';
-import api from '../../../axiosConfig';
 import { ItemCard } from '../itemCard/ItemCard';
 import { DroppableContainer } from './droppableContainer/DroppableContainer';
+import { PlusCircleOutlined } from '@ant-design/icons';
+import api from '../../../axiosConfig';
+import InfiniteScroll from 'react-infinite-scroll-component';
 
 const LIMIT = 20;
 const { Title } = Typography;
@@ -23,6 +24,7 @@ const SortableItem: React.FC<{ item: Item }> = ({ item }) => {
     cursor: 'grab',
     opacity: isDragging ? 0.4 : 1,
     marginBottom: 10,
+    width: '100%',
   };
 
   return (
@@ -41,6 +43,10 @@ export default function DualTableDnd() {
   const [pageSelected, setPageSelected] = useState(1);
   const [hasMoreAll, setHasMoreAll] = useState(true);
   const [hasMoreSelected, setHasMoreSelected] = useState(true);
+  const [customId, setCustomId] = useState('');
+  const [messageApi, contextHolder] = message.useMessage({ maxCount: 2, duration: 5 });
+
+  const [isAdding, setIsAdding] = useState<boolean>(false);
 
   const sensors = useSensors(useSensor(PointerSensor));
 
@@ -110,48 +116,100 @@ export default function DualTableDnd() {
 
     if (!activeContainer || !overContainer) return;
 
+    const sourceItems = activeContainer === 'all' ? allItems : selectedItems;
+    const targetItems = overContainer === 'all' ? allItems : selectedItems;
+    const sourceSetter = activeContainer === 'all' ? setAllItems : setSelectedItems;
+    const targetSetter = overContainer === 'all' ? setAllItems : setSelectedItems;
+
     if (activeContainer === overContainer) {
-      if (activeContainer === 'all') {
-        setAllItems((prev) => {
-          const oldIndex = prev.findIndex((i) => i.id === activeId);
-          const newIndex = prev.findIndex((i) => i.id === overId);
-          return arrayMove(prev, oldIndex, newIndex);
-        });
-      } else {
-        setSelectedItems((prev) => {
-          const oldIndex = prev.findIndex((i) => i.id === activeId);
-          const newIndex = prev.findIndex((i) => i.id === overId);
-          return arrayMove(prev, oldIndex, newIndex);
-        });
-      }
+      const oldIndex = sourceItems.findIndex((i) => i.id === activeId);
+      let overIndex = sourceItems.findIndex((i) => i.id === overId);
+
+      if (overIndex === -1 || overId === overContainer) overIndex = sourceItems.length - 1;
+
+      if (oldIndex === overIndex) return;
+
+      const newArr = arrayMove(sourceItems, oldIndex, overIndex);
+      sourceSetter(newArr);
+
+      const url = activeContainer === 'all' ? '/items/reorder-all' : '/items/reorder';
+      void api.post(url, { orderedIds: newArr.map((i) => i.id) }).catch(console.error);
       return;
     }
 
-    const movedItem = activeContainer === 'all' ? allItems.find((i) => i.id === activeId) : selectedItems.find((i) => i.id === activeId);
-
+    const movedItem = sourceItems.find((i) => i.id === activeId);
     if (!movedItem) return;
-
-    const sourceSetter = activeContainer === 'all' ? setAllItems : setSelectedItems;
-    const targetSetter = overContainer === 'all' ? setAllItems : setSelectedItems;
-    const sourceItems = activeContainer === 'all' ? allItems : selectedItems;
-    const targetItems = overContainer === 'all' ? allItems : selectedItems;
 
     const newSource = sourceItems.filter((i) => i.id !== activeId);
 
-    const overIndex = targetItems.findIndex((i) => i.id === overId);
-    const newTarget =
-      overIndex >= 0 ? [...targetItems.slice(0, overIndex), movedItem, ...targetItems.slice(overIndex)] : [...targetItems, movedItem];
+    let targetIndex = targetItems.findIndex((i) => i.id === overId);
+    if (targetIndex === -1 || overId === overContainer) targetIndex = targetItems.length;
+
+    const newTarget = [...targetItems.slice(0, targetIndex), movedItem, ...targetItems.slice(targetIndex)];
 
     sourceSetter(newSource);
     targetSetter(newTarget);
+
+    if (activeContainer === 'all' && overContainer === 'selected') {
+      void api.post('/items/select', { id: activeId, targetIndex }).catch(console.error);
+      void api.post('/items/reorder', { orderedIds: newTarget.map((i) => i.id) }).catch(console.error);
+    } else if (activeContainer === 'selected' && overContainer === 'all') {
+      void api.post('/items/deselect', { id: activeId, targetIndex }).catch(console.error);
+      void api.post('/items/reorder', { orderedIds: newSource.map((i) => i.id) }).catch(console.error);
+    }
+  };
+
+  const handleAdd = async () => {
+    if (!customId.trim()) return;
+    setIsAdding(true);
+
+    try {
+      const { data } = await api.post('/items/add', { id: customId });
+      setAllItems((prev) => [data, ...prev]);
+      setCustomId('');
+
+      messageApi.success(`Item ${data.id} added successfully!`);
+    } catch (err: any) {
+      messageApi.open({
+        type: 'error',
+        content: err.response?.data?.error || 'Failed to add new item!',
+      });
+    } finally {
+      setIsAdding(false);
+    }
   };
 
   console.log(`allItems.length`, allItems.length);
 
   return (
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={onDragStart} onDragEnd={onDragEnd}>
+      {contextHolder}
+
       <div style={{ display: 'flex', gap: 24, padding: 16 }}>
-        <Card id='allScroll' title='All Items' style={{ flex: 1, height: 600, overflowY: 'auto' }}>
+        <Card
+          id='allScroll'
+          title={
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>All Items</span>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Input
+                  placeholder='Custom ID'
+                  value={customId}
+                  onChange={(e) => setCustomId(e.target.value)}
+                  size='small'
+                  style={{
+                    width: 120,
+                    color: 'black',
+                  }}
+                />
+                <Button loading={isAdding} icon={<PlusCircleOutlined />} type='primary' size='small' onClick={handleAdd}>
+                  Add
+                </Button>
+              </div>
+            </div>
+          }
+          style={{ flex: 1, height: 600, overflowY: 'auto' }}
+        >
           <InfiniteScroll
             dataLength={allItems.length}
             next={fetchMoreAll}

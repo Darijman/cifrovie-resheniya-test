@@ -9,12 +9,11 @@ export class RequestQueue {
   }
 
   add(key: string, task: Task) {
-    // Дедупликация — одинаковые ключи заменяются
     this.queue.set(key, task);
   }
 
   private async flush() {
-    if (this.queue.size === 0) return;
+    if (!this.queue.size) return;
     console.log(`🌀 Flushing ${this.queue.size} tasks from ${this.name}`);
 
     const tasks = Array.from(this.queue.values());
