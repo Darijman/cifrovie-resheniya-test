@@ -14,8 +14,7 @@ export class RequestQueue {
 
   private async flush() {
     if (!this.queue.size) return;
-    console.log(`🌀 Flushing ${this.queue.size} tasks from ${this.name}`);
-
+    
     const tasks = Array.from(this.queue.values());
     this.queue.clear();
     for (const task of tasks) {

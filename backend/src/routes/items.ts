@@ -44,30 +44,26 @@ router.get('/', async (req, res) => {
 // body: { id: string }
 // Использует очередь addQueue, чтобы пакетно добавлять элементы каждые 10 секунд
 // ------------------------
-router.post('/add', async (req, res) => {
+router.post('/add', (req, res) => {
   const { id } = req.body as Item;
   if (!id) {
-    return res.status(400).json({ error: 'Missing id!' });
+    return res.status(400).json({ error: 'Missing ID!' });
   }
 
   const exists =
     allItems.some((item) => item.id === id) ||
     selectedItems.some((item) => item.id === id);
+
   if (exists) {
     return res.status(400).json({ error: 'Item with this ID already exists!' });
   }
 
-  const promise = new Promise<void>((resolve) => {
-    addQueue.add(id, async () => {
-      allItems.unshift({id});
-      resolve();
-    });
+  addQueue.add(id, async () => {
+    allItems.unshift({ id });
   });
 
-  await promise;
-  res.json({id});
+  res.json({ queued: true, id });
 });
-
 
 // ------------------------
 // POST /select
@@ -89,7 +85,6 @@ router.post('/select', (req, res) => {
           : selectedItems.length;
 
       selectedItems.splice(insertIndex, 0, item);
-      console.log(`✅ Selected item ${id} → inserted at ${insertIndex}`);
     }
   });
 
@@ -114,7 +109,6 @@ router.post('/deselect', (req, res) => {
         ? targetIndex
         : 0;
     allItems.splice(insertIndex, 0, item);
-    console.log(`✅ Deselected item ${id} → inserted at ${insertIndex}`);
   }
 
   res.json({ success: true });
@@ -137,7 +131,6 @@ router.post('/reorder', (req, res) => {
     }
     selectedItems.length = 0;
     selectedItems.push(...newOrder);
-    console.log(`🔄 Reordered selected items`);
   });
 
   res.json({ queued: true });
@@ -160,7 +153,6 @@ router.post('/reorder-all', (req, res) => {
     }
     allItems.length = 0;
     allItems.push(...newOrder);
-    console.log(`🔄 Reordered allItems`);
   });
 
   res.json({ queued: true });

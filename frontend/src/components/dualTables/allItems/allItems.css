@@ -1,0 +1,4 @@
+.all_items_add_button:disabled {
+  background-color: gray;
+  border: 1px solid gray;
+}

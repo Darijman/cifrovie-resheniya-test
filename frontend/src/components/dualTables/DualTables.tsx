@@ -1,53 +1,36 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { DndContext, closestCenter, DragEndEvent, PointerSensor, useSensor, useSensors, DragOverlay } from '@dnd-kit/core';
-import { SortableContext, useSortable, arrayMove, verticalListSortingStrategy } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
-import { Button, Card, Input, message, Spin, Typography } from 'antd';
+import { arrayMove } from '@dnd-kit/sortable';
+import { Typography, message } from 'antd';
 import { Item } from '@/interfaces/Item';
-import { ItemCard } from '../itemCard/ItemCard';
-import { DroppableContainer } from './droppableContainer/DroppableContainer';
-import { PlusCircleOutlined } from '@ant-design/icons';
+import { AllItems } from './allItems/AllItems';
+import { SelectedItems } from './selectedItems/SelectedItems';
 import api from '../../../axiosConfig';
-import InfiniteScroll from 'react-infinite-scroll-component';
+import './dualTables.css';
 
 const LIMIT = 20;
 const { Title } = Typography;
 
-const SortableItem: React.FC<{ item: Item }> = ({ item }) => {
-  const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: item.id });
-
-  const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    cursor: 'grab',
-    opacity: isDragging ? 0.4 : 1,
-    marginBottom: 10,
-    width: '100%',
-  };
-
-  return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <ItemCard item={item} />
-    </div>
-  );
-};
-
-export default function DualTableDnd() {
+export const DualTables = () => {
   const [allItems, setAllItems] = useState<Item[]>([]);
   const [selectedItems, setSelectedItems] = useState<Item[]>([]);
   const [activeItem, setActiveItem] = useState<Item | null>(null);
 
-  const [pageAll, setPageAll] = useState(1);
-  const [pageSelected, setPageSelected] = useState(1);
-  const [hasMoreAll, setHasMoreAll] = useState(true);
-  const [hasMoreSelected, setHasMoreSelected] = useState(true);
-  const [customId, setCustomId] = useState('');
+  const [pageAll, setPageAll] = useState<number>(1);
+  const [pageSelected, setPageSelected] = useState<number>(1);
+  const [hasMoreAll, setHasMoreAll] = useState<boolean>(true);
+  const [hasMoreSelected, setHasMoreSelected] = useState<boolean>(true);
+
+  const [searchAll, setSearchAll] = useState<string>('');
+  const [searchSelected, setSearchSelected] = useState<string>('');
+
+  const [initialError, setInitialError] = useState<string>('');
+  const [allItemsError, setAllItemsError] = useState<string>('');
+  const [selectedItemsError, setSelectedItemsError] = useState<string>('');
+
   const [messageApi, contextHolder] = message.useMessage({ maxCount: 2, duration: 5 });
-
-  const [isAdding, setIsAdding] = useState<boolean>(false);
-
   const sensors = useSensors(useSensor(PointerSensor));
 
   useEffect(() => {
@@ -57,39 +40,79 @@ export default function DualTableDnd() {
           api.get<Item[]>('/items', { params: { page: 1, limit: LIMIT, selected: false } }),
           api.get<Item[]>('/items', { params: { page: 1, limit: LIMIT, selected: true } }),
         ]);
+
         setAllItems(allRes.data);
         setSelectedItems(selectedRes.data);
         setHasMoreAll(allRes.data.length === LIMIT);
         setHasMoreSelected(selectedRes.data.length === LIMIT);
-      } catch (error) {
-        console.error('Ошибка при загрузке данных:', error);
+      } catch {
+        setInitialError('Failed to load data!');
       }
     };
+
     fetchInitial();
   }, []);
 
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const { data } = await api.get<Item[]>('/items', {
+          params: { page: 1, limit: pageSelected * LIMIT, selected: true, filter: searchSelected },
+        });
+
+        setSelectedItems((prev) => {
+          const prevIds = new Set(prev.map((i) => i.id));
+          const newItems = data.filter((i) => !prevIds.has(i.id));
+          return [...prev, ...newItems];
+        });
+      } catch {
+        setSelectedItemsError(`Failed to update Selected Items!`);
+      }
+    }, 1_000);
+
+    return () => clearInterval(interval);
+  }, [pageSelected, searchSelected, messageApi]);
+
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const { data } = await api.get<Item[]>('/items', {
+          params: { page: 1, limit: pageAll * LIMIT, selected: false, filter: searchAll },
+        });
+        setAllItems((prev) => {
+          const same = data.length === prev.length && data.every((i, idx) => i.id === prev[idx]?.id);
+          return same ? prev : data;
+        });
+      } catch {
+        setAllItemsError(`Failed to update All Items!`);
+      }
+    }, 10_000);
+
+    return () => clearInterval(interval);
+  }, [pageAll, searchAll, messageApi]);
+
   const fetchMoreAll = async () => {
     const nextPage = pageAll + 1;
-    const { data } = await api.get<Item[]>('/items', { params: { page: nextPage, limit: LIMIT, selected: false } });
-    if (data.length > 0) {
+    const { data } = await api.get<Item[]>('/items', {
+      params: { page: nextPage, limit: LIMIT, selected: false, filter: searchAll },
+    });
+    if (data.length) {
       setAllItems((prev) => [...prev, ...data]);
       setPageAll(nextPage);
       if (data.length < LIMIT) setHasMoreAll(false);
-    } else {
-      setHasMoreAll(false);
-    }
+    } else setHasMoreAll(false);
   };
 
   const fetchMoreSelected = async () => {
     const nextPage = pageSelected + 1;
-    const { data } = await api.get<Item[]>('/items', { params: { page: nextPage, limit: LIMIT, selected: true } });
-    if (data.length > 0) {
+    const { data } = await api.get<Item[]>('/items', {
+      params: { page: nextPage, limit: LIMIT, selected: true, filter: searchSelected },
+    });
+    if (data.length) {
       setSelectedItems((prev) => [...prev, ...data]);
       setPageSelected(nextPage);
       if (data.length < LIMIT) setHasMoreSelected(false);
-    } else {
-      setHasMoreSelected(false);
-    }
+    } else setHasMoreSelected(false);
   };
 
   const findContainer = (id: string) => {
@@ -110,10 +133,8 @@ export default function DualTableDnd() {
 
     const activeId = active.id as string;
     const overId = over.id as string;
-
     const activeContainer = findContainer(activeId);
     const overContainer = findContainer(overId) || overId;
-
     if (!activeContainer || !overContainer) return;
 
     const sourceItems = activeContainer === 'all' ? allItems : selectedItems;
@@ -124,16 +145,13 @@ export default function DualTableDnd() {
     if (activeContainer === overContainer) {
       const oldIndex = sourceItems.findIndex((i) => i.id === activeId);
       let overIndex = sourceItems.findIndex((i) => i.id === overId);
-
       if (overIndex === -1 || overId === overContainer) overIndex = sourceItems.length - 1;
-
-      if (oldIndex === overIndex) return;
 
       const newArr = arrayMove(sourceItems, oldIndex, overIndex);
       sourceSetter(newArr);
 
       const url = activeContainer === 'all' ? '/items/reorder-all' : '/items/reorder';
-      void api.post(url, { orderedIds: newArr.map((i) => i.id) }).catch(console.error);
+      void api.post(url, { orderedIds: newArr.map((i) => i.id) });
       return;
     }
 
@@ -141,109 +159,71 @@ export default function DualTableDnd() {
     if (!movedItem) return;
 
     const newSource = sourceItems.filter((i) => i.id !== activeId);
-
     let targetIndex = targetItems.findIndex((i) => i.id === overId);
     if (targetIndex === -1 || overId === overContainer) targetIndex = targetItems.length;
-
     const newTarget = [...targetItems.slice(0, targetIndex), movedItem, ...targetItems.slice(targetIndex)];
 
     sourceSetter(newSource);
     targetSetter(newTarget);
 
     if (activeContainer === 'all' && overContainer === 'selected') {
-      void api.post('/items/select', { id: activeId, targetIndex }).catch(console.error);
-      void api.post('/items/reorder', { orderedIds: newTarget.map((i) => i.id) }).catch(console.error);
+      void api.post('/items/select', { id: activeId, targetIndex });
+      void api.post('/items/reorder', { orderedIds: newTarget.map((i) => i.id) });
     } else if (activeContainer === 'selected' && overContainer === 'all') {
-      void api.post('/items/deselect', { id: activeId, targetIndex }).catch(console.error);
-      void api.post('/items/reorder', { orderedIds: newSource.map((i) => i.id) }).catch(console.error);
+      void api.post('/items/deselect', { id: activeId, targetIndex });
+      void api.post('/items/reorder', { orderedIds: newSource.map((i) => i.id) });
     }
   };
 
-  const handleAdd = async () => {
-    if (!customId.trim()) return;
-    setIsAdding(true);
+  const handleFilterChange = async (value: string, type: 'all' | 'selected') => {
+    if (type === 'all') setSearchAll(value);
+    else setSearchSelected(value);
 
-    try {
-      const { data } = await api.post('/items/add', { id: customId });
-      setAllItems((prev) => [data, ...prev]);
-      setCustomId('');
+    const { data } = await api.get('/items', {
+      params: { page: 1, limit: LIMIT, filter: value, selected: type === 'selected' },
+    });
 
-      messageApi.success(`Item ${data.id} added successfully!`);
-    } catch (err: any) {
-      messageApi.open({
-        type: 'error',
-        content: err.response?.data?.error || 'Failed to add new item!',
-      });
-    } finally {
-      setIsAdding(false);
+    if (type === 'all') {
+      setAllItems(data);
+      setPageAll(1);
+      setHasMoreAll(data.length === LIMIT);
+    } else {
+      setSelectedItems(data);
+      setPageSelected(1);
+      setHasMoreSelected(data.length === LIMIT);
     }
   };
 
-  console.log(`allItems.length`, allItems.length);
+  if (initialError) {
+    return (
+      <Title level={3} style={{ textAlign: 'center', color: 'red' }}>
+        {initialError}
+      </Title>
+    );
+  }
 
   return (
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={onDragStart} onDragEnd={onDragEnd}>
       {contextHolder}
 
       <div style={{ display: 'flex', gap: 24, padding: 16 }}>
-        <Card
-          id='allScroll'
-          title={
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>All Items</span>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <Input
-                  placeholder='Custom ID'
-                  value={customId}
-                  onChange={(e) => setCustomId(e.target.value)}
-                  size='small'
-                  style={{
-                    width: 120,
-                    color: 'black',
-                  }}
-                />
-                <Button loading={isAdding} icon={<PlusCircleOutlined />} type='primary' size='small' onClick={handleAdd}>
-                  Add
-                </Button>
-              </div>
-            </div>
-          }
-          style={{ flex: 1, height: 600, overflowY: 'auto' }}
-        >
-          <InfiniteScroll
-            dataLength={allItems.length}
-            next={fetchMoreAll}
-            hasMore={hasMoreAll}
-            loader={<Spin size='large' style={{ display: 'block', margin: '16px auto' }} />}
-            scrollableTarget='allScroll'
-          >
-            <DroppableContainer id='all'>
-              <SortableContext id='all' items={allItems.map((i) => i.id)} strategy={verticalListSortingStrategy}>
-                {allItems.map((item) => (
-                  <SortableItem key={item.id} item={item} />
-                ))}
-              </SortableContext>
-            </DroppableContainer>
-          </InfiniteScroll>
-        </Card>
+        <AllItems
+          allItems={allItems}
+          fetchMoreAll={fetchMoreAll}
+          hasMoreAll={hasMoreAll}
+          handleFilterChange={handleFilterChange}
+          setAllItems={setAllItems}
+          messageApi={messageApi}
+          error={allItemsError}
+        />
 
-        <Card id='selectedScroll' title='Selected Items' style={{ flex: 1, height: 600, overflowY: 'auto' }}>
-          <InfiniteScroll
-            dataLength={selectedItems.length}
-            next={fetchMoreSelected}
-            hasMore={hasMoreSelected}
-            loader={<Spin size='large' style={{ display: 'block', margin: '16px auto' }} />}
-            scrollableTarget='selectedScroll'
-          >
-            <DroppableContainer id='selected'>
-              <SortableContext id='selected' items={selectedItems.map((i) => i.id)} strategy={verticalListSortingStrategy}>
-                {selectedItems.map((item) => (
-                  <SortableItem key={item.id} item={item} />
-                ))}
-              </SortableContext>
-            </DroppableContainer>
-          </InfiniteScroll>
-        </Card>
+        <SelectedItems
+          selectedItems={selectedItems}
+          fetchMoreSelected={fetchMoreSelected}
+          hasMoreSelected={hasMoreSelected}
+          handleFilterChange={handleFilterChange}
+          error={selectedItemsError}
+        />
       </div>
 
       <DragOverlay>
@@ -264,4 +244,4 @@ export default function DualTableDnd() {
       </DragOverlay>
     </DndContext>
   );
-}
+};

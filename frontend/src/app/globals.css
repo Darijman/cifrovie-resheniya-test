@@ -21,15 +21,6 @@ body {
   --primary-text-color: #000000;
   --secondary-text-color: #8e8e8e;
   --border-color: #dbdbdb;
-
-  --submit-button-color: #1677ff;
-
-  --red-color: #d32f2f;
-  --green-color: #228b22;
-
-  --tag-color: #678aaf;
-  --category-color: gray;
-  --status-color: #595959;
 }
 
 [data-theme='dark'] {
@@ -38,38 +29,8 @@ body {
   --hover-color: #262626;
   --primary-text-color: #ffffff;
   --secondary-text-color: #a8a8a8;
-  --border-color: #262626;
-
-  --red-color: #e57373;
-  --green-color: #98fb98;
-
-  --tag-color: #678aaf;
-  --category-color: gray;
-  --status-color: #595959;
 }
 
 main {
   padding: 100px;
 }
-
-@media screen and (max-width: 700px) {
-  main {
-    padding: 100px 50px;
-  }
-}
-
-@media screen and (max-width: 500px) {
-  main {
-    padding: 100px 25px;
-  }
-}
-
-/* ant start */
-
-/* upload delete icon  */
-.ant-upload-list-item-actions .anticon-delete {  
-  color: var(--red-color) !important;
-  font-size: 20px !important;
-}
-
-/* ant end */
