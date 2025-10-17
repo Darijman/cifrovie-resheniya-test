@@ -5,7 +5,9 @@ import itemsRouter from './routes/items';
 const app = express();
 const PORT = 9000;
 
-app.use(cors());
+app.use(cors({
+  origin: true
+}));
 app.use(express.json());
 app.use('/items', itemsRouter);
 
