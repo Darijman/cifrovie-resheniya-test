@@ -2,10 +2,13 @@ type Task = () => Promise<void>;
 
 export class RequestQueue {
   private queue = new Map<string, Task>();
-  private interval: NodeJS.Timeout;
+  private isFlushing = false;
 
-  constructor(private name: string, private flushDelayMs: number) {
-    this.interval = setInterval(() => this.flush(), flushDelayMs);
+  constructor(
+    private name: string,
+    private flushDelayMs: number,
+  ) {
+    this.scheduleNextFlush();
   }
 
   add(key: string, task: Task) {
@@ -13,16 +16,27 @@ export class RequestQueue {
   }
 
   private async flush() {
-    if (!this.queue.size) return;
-    
-    const tasks = Array.from(this.queue.values());
+    if (this.isFlushing || this.queue.size === 0) return;
+
+    this.isFlushing = true;
+    const tasks = Array.from(this.queue.entries());
     this.queue.clear();
-    for (const task of tasks) {
+
+    for (const [key, task] of tasks) {
       try {
         await task();
       } catch (err) {
-        console.error(`❌ Queue ${this.name} task failed`, err);
+        console.error(`❌ Queue "${this.name}" task "${key}" failed:`, err);
       }
     }
+
+    this.isFlushing = false;
+  }
+
+  private scheduleNextFlush() {
+    setTimeout(async () => {
+      await this.flush();
+      this.scheduleNextFlush();
+    }, this.flushDelayMs);
   }
 }

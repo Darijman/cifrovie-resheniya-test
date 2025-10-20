@@ -75,21 +75,36 @@ router.post('/select', (req, res) => {
   const { id, targetIndex } = req.body as { id: string; targetIndex?: number };
 
   updateQueue.add(`select-${id}`, async () => {
-    const index = allItems.findIndex((i) => i.id === id);
-    if (index >= 0) {
-      const [item] = allItems.splice(index, 1);
-
-      const insertIndex =
-        typeof targetIndex === 'number' && targetIndex >= 0 && targetIndex <= selectedItems.length
-          ? targetIndex
-          : selectedItems.length;
-
-      selectedItems.splice(insertIndex, 0, item);
+    // Проверяем, вдруг элемент уже выбран
+    if (selectedItems.some(i => i.id === id)) {
+      console.warn(`⚠️ Item ${id} already selected`);
+      return;
     }
+
+    // Удаляем из allItems
+    const index = allItems.findIndex(i => i.id === id);
+    if (index < 0) return;
+    const [item] = allItems.splice(index, 1);
+
+    // Проверяем, нет ли дублей (подстраховка)
+    const safeSelected = selectedItems.filter(i => i.id !== id);
+
+    // Вставляем на нужное место
+    const insertIndex =
+      typeof targetIndex === 'number' && targetIndex >= 0 && targetIndex <= safeSelected.length
+        ? targetIndex
+        : safeSelected.length;
+
+    safeSelected.splice(insertIndex, 0, item);
+
+    // Обновляем массив атомарно
+    selectedItems.length = 0;
+    selectedItems.push(...safeSelected);
   });
 
   res.json({ queued: true });
 });
+
 
 // ------------------------
 // POST /deselect
@@ -99,6 +114,7 @@ router.post('/select', (req, res) => {
 // ------------------------
 router.post('/deselect', (req, res) => {
   const { id, targetIndex } = req.body as { id: string; targetIndex?: number };
+  if (allItems.some((i) => i.id === id)) return;
 
   const index = selectedItems.findIndex(i => i.id === id);
   const [item] = index >= 0 ? selectedItems.splice(index, 1) : [];
@@ -145,14 +161,38 @@ router.post('/reorder', (req, res) => {
 router.post('/reorder-all', (req, res) => {
   const { orderedIds } = req.body as { orderedIds: string[] };
 
+  if (!Array.isArray(orderedIds)) {
+    return res.status(400).json({ error: 'Invalid orderedIds format' });
+  }
+
   updateQueue.add('reorder-all', async () => {
-    const newOrder: Item[] = [];
-    for (const id of orderedIds) {
-      const item = allItems.find((i) => i.id === id);
-      if (item) newOrder.push(item);
+    try {
+      const map = new Map(allItems.map((item) => [item.id, item]));
+      const newOrder: Item[] = [];
+
+      for (const id of orderedIds) {
+        const item = map.get(id);
+        if (item) {
+          newOrder.push(item);
+          map.delete(id);
+        }
+      }
+
+      for (const item of allItems) {
+        if (map.has(item.id)) newOrder.push(item);
+      }
+
+      // Безопасная замена по батчам, чтобы не переполнять стек
+      allItems.length = 0;
+
+      const BATCH_SIZE = 10_000;
+      for (let i = 0; i < newOrder.length; i += BATCH_SIZE) {
+        allItems.push(...newOrder.slice(i, i + BATCH_SIZE));
+        await new Promise((r) => setTimeout(r, 0)); // разгрузка event loop
+      }
+    } catch (err) {
+      console.error('❌ reorder-all failed:', err);
     }
-    allItems.length = 0;
-    allItems.push(...newOrder);
   });
 
   res.json({ queued: true });

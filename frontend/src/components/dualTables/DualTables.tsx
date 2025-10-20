@@ -80,8 +80,10 @@ export const DualTables = () => {
           params: { page: 1, limit: pageAll * LIMIT, selected: false, filter: searchAll },
         });
         setAllItems((prev) => {
-          const same = data.length === prev.length && data.every((i, idx) => i.id === prev[idx]?.id);
-          return same ? prev : data;
+          const prevIds = prev.map((i) => i.id);
+          const newIds = data.map((i) => i.id);
+          if (JSON.stringify(prevIds) === JSON.stringify(newIds)) return prev;
+          return data;
         });
       } catch {
         setAllItemsError(`Failed to update All Items!`);
