@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { DndContext, closestCenter, DragEndEvent, PointerSensor, useSensor, useSensors, DragOverlay } from '@dnd-kit/core';
+import { arrayMove } from '@dnd-kit/sortable';
 import { Typography, message } from 'antd';
 import { Item } from '@/interfaces/Item';
 import { AllItems } from './allItems/AllItems';
@@ -134,7 +135,7 @@ export const DualTables = () => {
     setActiveItem(item || null);
   };
 
-  const onDragEnd = async ({ active, over }: DragEndEvent) => {
+  const onDragEnd = ({ active, over }: DragEndEvent) => {
     setActiveItem(null);
     if (!over) return;
 
@@ -150,7 +151,18 @@ export const DualTables = () => {
     const sourceSetter = activeContainer === 'all' ? setAllItems : setSelectedItems;
     const targetSetter = overContainer === 'all' ? setAllItems : setSelectedItems;
 
-    if (activeContainer !== overContainer) {
+    if (activeContainer === overContainer) {
+      const oldIndex = sourceItems.findIndex((i) => i.id === activeId);
+      const overIndex =
+        overId.endsWith('-end') || overId === overContainer ? sourceItems.length - 1 : sourceItems.findIndex((i) => i.id === overId);
+
+      const newArr = arrayMove(sourceItems, oldIndex, overIndex);
+      sourceSetter(newArr);
+
+      const url = activeContainer === 'all' ? '/items/reorder-all' : '/items/reorder';
+      const toId = overId.endsWith('-end') || overId === overContainer ? undefined : overId;
+      void api.post(url, { fromId: activeId, toId });
+    } else {
       const movedItem = sourceItems.find((i) => i.id === activeId);
       if (!movedItem) return;
 
@@ -166,18 +178,16 @@ export const DualTables = () => {
 
       setPendingIds((prev) => new Set(prev).add(activeId));
 
-      const toId = overId.endsWith('-end') || overId === overContainer ? undefined : overId;
       const url = activeContainer === 'all' && overContainer === 'selected' ? '/items/select' : '/items/deselect';
+      const toId = overId.endsWith('-end') || overId === overContainer ? undefined : overId;
 
-      try {
-        await api.post(url, { id: activeId, toId });
-      } finally {
+      void api.post(url, { id: activeId, toId }).finally(() => {
         setPendingIds((prev) => {
           const newSet = new Set(prev);
           newSet.delete(activeId);
           return newSet;
         });
-      }
+      });
     }
   };
 
