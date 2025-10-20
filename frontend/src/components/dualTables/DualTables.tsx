@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { DndContext, closestCenter, DragEndEvent, PointerSensor, useSensor, useSensors, DragOverlay } from '@dnd-kit/core';
-import { arrayMove } from '@dnd-kit/sortable';
 import { Typography, message } from 'antd';
 import { Item } from '@/interfaces/Item';
 import { AllItems } from './allItems/AllItems';
@@ -25,6 +24,7 @@ export const DualTables = () => {
 
   const [searchAll, setSearchAll] = useState<string>('');
   const [searchSelected, setSearchSelected] = useState<string>('');
+  const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
 
   const [initialError, setInitialError] = useState<string>('');
   const [allItemsError, setAllItemsError] = useState<string>('');
@@ -62,7 +62,7 @@ export const DualTables = () => {
 
         setSelectedItems((prev) => {
           const prevIds = new Set(prev.map((i) => i.id));
-          const newItems = data.filter((i) => !prevIds.has(i.id));
+          const newItems = data.filter((i) => !prevIds.has(i.id) && !pendingIds.has(i.id));
           return [...prev, ...newItems];
         });
       } catch {
@@ -71,7 +71,7 @@ export const DualTables = () => {
     }, 1_000);
 
     return () => clearInterval(interval);
-  }, [pageSelected, searchSelected, messageApi]);
+  }, [pageSelected, searchSelected, messageApi, pendingIds]);
 
   useEffect(() => {
     const interval = setInterval(async () => {
@@ -119,10 +119,9 @@ export const DualTables = () => {
 
   const findContainer = (id: string) => {
     if (!id) return null;
-    // если id заканчивается на '-end', считаем контейнером префикс до '-end'
     if (id.endsWith('-end')) {
       const containerId = id.replace(/-end$/, '');
-      return containerId; // 'selected' или 'all'
+      return containerId;
     }
     if (allItems.some((i) => i.id === id)) return 'all';
     if (selectedItems.some((i) => i.id === id)) return 'selected';
@@ -135,7 +134,7 @@ export const DualTables = () => {
     setActiveItem(item || null);
   };
 
-  const onDragEnd = ({ active, over }: DragEndEvent) => {
+  const onDragEnd = async ({ active, over }: DragEndEvent) => {
     setActiveItem(null);
     if (!over) return;
 
@@ -144,7 +143,6 @@ export const DualTables = () => {
 
     const activeContainer = findContainer(activeId);
     const overContainer = findContainer(overId) || overId;
-
     if (!activeContainer || !overContainer) return;
 
     const sourceItems = activeContainer === 'all' ? allItems : selectedItems;
@@ -152,41 +150,34 @@ export const DualTables = () => {
     const sourceSetter = activeContainer === 'all' ? setAllItems : setSelectedItems;
     const targetSetter = overContainer === 'all' ? setAllItems : setSelectedItems;
 
-    if (activeContainer === overContainer) {
-      const oldIndex = sourceItems.findIndex((i) => i.id === activeId);
+    if (activeContainer !== overContainer) {
+      const movedItem = sourceItems.find((i) => i.id === activeId);
+      if (!movedItem) return;
 
-      const overIndex =
-        overId.endsWith('-end') || overId === overContainer ? sourceItems.length - 1 : sourceItems.findIndex((i) => i.id === overId);
+      const newSource = sourceItems.filter((i) => i.id !== activeId);
+      const targetIndex =
+        overId.endsWith('-end') || overId === overContainer ? targetItems.length : targetItems.findIndex((i) => i.id === overId);
 
-      const newArr = arrayMove(sourceItems, oldIndex, overIndex);
-      sourceSetter(newArr);
+      const newTarget = [...targetItems];
+      newTarget.splice(targetIndex, 0, movedItem);
 
-      const url = activeContainer === 'all' ? '/items/reorder-all' : '/items/reorder';
+      sourceSetter(newSource);
+      targetSetter(newTarget);
+
+      setPendingIds((prev) => new Set(prev).add(activeId));
+
       const toId = overId.endsWith('-end') || overId === overContainer ? undefined : overId;
+      const url = activeContainer === 'all' && overContainer === 'selected' ? '/items/select' : '/items/deselect';
 
-      void api.post(url, { fromId: activeId, toId });
-      return;
-    }
-
-    const movedItem = sourceItems.find((i) => i.id === activeId);
-    if (!movedItem) return;
-
-    const newSource = sourceItems.filter((i) => i.id !== activeId);
-
-    const isEndDrop = overId.endsWith('-end') || overId === overContainer;
-    const targetIndex = isEndDrop ? targetItems.length : targetItems.findIndex((i) => i.id === overId);
-
-    const newTarget = [...targetItems.slice(0, targetIndex), movedItem, ...targetItems.slice(targetIndex)];
-
-    sourceSetter(newSource);
-    targetSetter(newTarget);
-
-    const toId = isEndDrop ? undefined : overId;
-
-    if (activeContainer === 'all' && overContainer === 'selected') {
-      void api.post('/items/select', { id: activeId, toId });
-    } else if (activeContainer === 'selected' && overContainer === 'all') {
-      void api.post('/items/deselect', { id: activeId, toId });
+      try {
+        await api.post(url, { id: activeId, toId });
+      } finally {
+        setPendingIds((prev) => {
+          const newSet = new Set(prev);
+          newSet.delete(activeId);
+          return newSet;
+        });
+      }
     }
   };
 
