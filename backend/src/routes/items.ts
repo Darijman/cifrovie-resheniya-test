@@ -9,6 +9,7 @@ const router = Router();
 // ------------------------
 const addQueue = new RequestQueue('add', 10_000);   // Каждые 10 секунд добавляет новые элементы
 const updateQueue = new RequestQueue('update', 1_000); // Каждую секунду обрабатывает изменения порядка и перемещения
+const inProgress = new Set();
 
 // ------------------------
 // GET /
@@ -43,7 +44,7 @@ router.get('/', async (req, res) => {
 // Добавление нового элемента в allItems
 // body: { id: string }
 // Использует очередь addQueue, чтобы пакетно добавлять элементы каждые 10 секунд
-// ------------------------
+// -----------------------
 router.post('/add', (req, res) => {
   const { id } = req.body as Item;
   if (!id) {
@@ -72,34 +73,30 @@ router.post('/add', (req, res) => {
 // Использует очередь updateQueue для последовательного применения операций
 // ------------------------
 router.post('/select', (req, res) => {
-  const { id, targetIndex } = req.body as { id: string; targetIndex?: number };
+  const { id, toId } = req.body as { id: string; toId?: string };
+  if (inProgress.has(id)) {
+    return res.json({ queued: false, message: `Item ${id} is already being processed` });
+  }
+
+  inProgress.add(id);
 
   updateQueue.add(`select-${id}`, async () => {
-    // Проверяем, вдруг элемент уже выбран
-    if (selectedItems.some(i => i.id === id)) {
-      console.warn(`⚠️ Item ${id} already selected`);
-      return;
+    try {
+      if (selectedItems.some(i => i.id === id)) return;
+      const index = allItems.findIndex(i => i.id === id);
+      if (index === -1) return;
+
+      const [item] = allItems.splice(index, 1);
+
+      const insertIndex = toId
+        ? selectedItems.findIndex(i => i.id === toId)
+        : -1;
+
+      if (insertIndex === -1) selectedItems.push(item);
+      else selectedItems.splice(insertIndex, 0, item);
+    } finally {
+      inProgress.delete(id);
     }
-
-    // Удаляем из allItems
-    const index = allItems.findIndex(i => i.id === id);
-    if (index < 0) return;
-    const [item] = allItems.splice(index, 1);
-
-    // Проверяем, нет ли дублей (подстраховка)
-    const safeSelected = selectedItems.filter(i => i.id !== id);
-
-    // Вставляем на нужное место
-    const insertIndex =
-      typeof targetIndex === 'number' && targetIndex >= 0 && targetIndex <= safeSelected.length
-        ? targetIndex
-        : safeSelected.length;
-
-    safeSelected.splice(insertIndex, 0, item);
-
-    // Обновляем массив атомарно
-    selectedItems.length = 0;
-    selectedItems.push(...safeSelected);
   });
 
   res.json({ queued: true });
@@ -113,86 +110,71 @@ router.post('/select', (req, res) => {
 // Здесь можно добавить очередь updateQueue, чтобы тоже обрабатывать батчами
 // ------------------------
 router.post('/deselect', (req, res) => {
-  const { id, targetIndex } = req.body as { id: string; targetIndex?: number };
-  if (allItems.some((i) => i.id === id)) return;
-
-  const index = selectedItems.findIndex(i => i.id === id);
-  const [item] = index >= 0 ? selectedItems.splice(index, 1) : [];
-
-  if (item) {
-    const insertIndex =
-      typeof targetIndex === 'number' && targetIndex >= 0 && targetIndex <= allItems.length
-        ? targetIndex
-        : 0;
-    allItems.splice(insertIndex, 0, item);
+  const { id, toId } = req.body as { id: string; toId?: string };
+  if (inProgress.has(id)) {
+    return res.json({ queued: false, message: `Item ${id} is already being processed` });
   }
 
-  res.json({ success: true });
-});
+  inProgress.add(id);
 
-// ------------------------
-// POST /reorder
-// Перестановка выбранных элементов в selectedItems
-// body: { orderedIds: string[] } - новый порядок id
-// Использует очередь updateQueue
-// ------------------------
-router.post('/reorder', (req, res) => {
-  const { orderedIds } = req.body as { orderedIds: string[] };
+  updateQueue.add(`deselect-${id}`, async () => {
+    try {
+      const index = selectedItems.findIndex(i => i.id === id);
+      if (index === -1) return;
 
-  updateQueue.add('reorder', async () => {
-    const newOrder: Item[] = [];
-    for (const id of orderedIds) {
-      const item = selectedItems.find((i) => i.id === id);
-      if (item) newOrder.push(item);
+      const [item] = selectedItems.splice(index, 1);
+
+      const insertIndex = toId
+        ? allItems.findIndex(i => i.id === toId)
+        : -1;
+
+      if (insertIndex === -1) allItems.push(item);
+      else allItems.splice(insertIndex, 0, item);
+    } finally {
+      inProgress.delete(id);
     }
-    selectedItems.length = 0;
-    selectedItems.push(...newOrder);
   });
 
   res.json({ queued: true });
 });
 
+
+// ------------------------
+// POST /reorder
+// Перестановка выбранных элементов в selectedItems
+// body: { fromId: string, toId: string }
+// ------------------------
+router.post('/reorder', (req, res) => {
+  const { fromId, toId } = req.body as { fromId: string; toId?: string };
+  const fromIndex = selectedItems.findIndex(i => i.id === fromId);
+  if (fromIndex === -1) return res.status(404).json({ error: 'fromId not found' });
+
+  const [moved] = selectedItems.splice(fromIndex, 1);
+
+  const toIndex = toId ? selectedItems.findIndex(i => i.id === toId) : -1;
+  if (toIndex === -1) selectedItems.push(moved);
+  else selectedItems.splice(toIndex, 0, moved);
+
+  res.json({ success: true });
+});
+
+
 // ------------------------
 // POST /reorder-all
 // Перестановка всех элементов в allItems
-// body: { orderedIds: string[] } - новый порядок id
-// Использует очередь updateQueue
+// body: { fromId: string, toId: string }
 // ------------------------
 router.post('/reorder-all', (req, res) => {
-  const { orderedIds } = req.body as { orderedIds: string[] };
-
-  if (!Array.isArray(orderedIds)) {
-    return res.status(400).json({ error: 'Invalid orderedIds format' });
-  }
+  const { fromId, toId } = req.body;
+  if (!fromId || !toId) return res.status(400).json({ error: 'fromId and toId required' });
 
   updateQueue.add('reorder-all', async () => {
-    try {
-      const map = new Map(allItems.map((item) => [item.id, item]));
-      const newOrder: Item[] = [];
+    const fromIndex = allItems.findIndex(i => i.id === fromId);
+    const toIndex = allItems.findIndex(i => i.id === toId);
+    if (fromIndex === -1 || toIndex === -1) return;
 
-      for (const id of orderedIds) {
-        const item = map.get(id);
-        if (item) {
-          newOrder.push(item);
-          map.delete(id);
-        }
-      }
-
-      for (const item of allItems) {
-        if (map.has(item.id)) newOrder.push(item);
-      }
-
-      // Безопасная замена по батчам, чтобы не переполнять стек
-      allItems.length = 0;
-
-      const BATCH_SIZE = 10_000;
-      for (let i = 0; i < newOrder.length; i += BATCH_SIZE) {
-        allItems.push(...newOrder.slice(i, i + BATCH_SIZE));
-        await new Promise((r) => setTimeout(r, 0)); // разгрузка event loop
-      }
-    } catch (err) {
-      console.error('❌ reorder-all failed:', err);
-    }
+    const [moved] = allItems.splice(fromIndex, 1);
+    allItems.splice(toIndex, 0, moved);
   });
 
   res.json({ queued: true });

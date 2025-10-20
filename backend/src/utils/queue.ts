@@ -1,13 +1,10 @@
 type Task = () => Promise<void>;
-
 export class RequestQueue {
   private queue = new Map<string, Task>();
   private isFlushing = false;
+  private timer: NodeJS.Timeout | null = null;
 
-  constructor(
-    private name: string,
-    private flushDelayMs: number,
-  ) {
+  constructor(private name: string, private flushDelayMs: number) {
     this.scheduleNextFlush();
   }
 
@@ -15,10 +12,16 @@ export class RequestQueue {
     this.queue.set(key, task);
   }
 
+  /** Немедленный запуск — безопасно */
+  async flushNow() {
+    if (this.isFlushing) return; // не рекурсить
+    await this.flush();
+  }
+
   private async flush() {
     if (this.isFlushing || this.queue.size === 0) return;
-
     this.isFlushing = true;
+
     const tasks = Array.from(this.queue.entries());
     this.queue.clear();
 
@@ -34,7 +37,8 @@ export class RequestQueue {
   }
 
   private scheduleNextFlush() {
-    setTimeout(async () => {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = setTimeout(async () => {
       await this.flush();
       this.scheduleNextFlush();
     }, this.flushDelayMs);

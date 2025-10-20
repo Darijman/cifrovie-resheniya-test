@@ -118,6 +118,12 @@ export const DualTables = () => {
   };
 
   const findContainer = (id: string) => {
+    if (!id) return null;
+    // если id заканчивается на '-end', считаем контейнером префикс до '-end'
+    if (id.endsWith('-end')) {
+      const containerId = id.replace(/-end$/, '');
+      return containerId; // 'selected' или 'all'
+    }
     if (allItems.some((i) => i.id === id)) return 'all';
     if (selectedItems.some((i) => i.id === id)) return 'selected';
     return null;
@@ -135,8 +141,10 @@ export const DualTables = () => {
 
     const activeId = active.id as string;
     const overId = over.id as string;
+
     const activeContainer = findContainer(activeId);
     const overContainer = findContainer(overId) || overId;
+
     if (!activeContainer || !overContainer) return;
 
     const sourceItems = activeContainer === 'all' ? allItems : selectedItems;
@@ -146,14 +154,17 @@ export const DualTables = () => {
 
     if (activeContainer === overContainer) {
       const oldIndex = sourceItems.findIndex((i) => i.id === activeId);
-      let overIndex = sourceItems.findIndex((i) => i.id === overId);
-      if (overIndex === -1 || overId === overContainer) overIndex = sourceItems.length - 1;
+
+      const overIndex =
+        overId.endsWith('-end') || overId === overContainer ? sourceItems.length - 1 : sourceItems.findIndex((i) => i.id === overId);
 
       const newArr = arrayMove(sourceItems, oldIndex, overIndex);
       sourceSetter(newArr);
 
       const url = activeContainer === 'all' ? '/items/reorder-all' : '/items/reorder';
-      void api.post(url, { orderedIds: newArr.map((i) => i.id) });
+      const toId = overId.endsWith('-end') || overId === overContainer ? undefined : overId;
+
+      void api.post(url, { fromId: activeId, toId });
       return;
     }
 
@@ -161,19 +172,21 @@ export const DualTables = () => {
     if (!movedItem) return;
 
     const newSource = sourceItems.filter((i) => i.id !== activeId);
-    let targetIndex = targetItems.findIndex((i) => i.id === overId);
-    if (targetIndex === -1 || overId === overContainer) targetIndex = targetItems.length;
+
+    const isEndDrop = overId.endsWith('-end') || overId === overContainer;
+    const targetIndex = isEndDrop ? targetItems.length : targetItems.findIndex((i) => i.id === overId);
+
     const newTarget = [...targetItems.slice(0, targetIndex), movedItem, ...targetItems.slice(targetIndex)];
 
     sourceSetter(newSource);
     targetSetter(newTarget);
 
+    const toId = isEndDrop ? undefined : overId;
+
     if (activeContainer === 'all' && overContainer === 'selected') {
-      void api.post('/items/select', { id: activeId, targetIndex });
-      void api.post('/items/reorder', { orderedIds: newTarget.map((i) => i.id) });
+      void api.post('/items/select', { id: activeId, toId });
     } else if (activeContainer === 'selected' && overContainer === 'all') {
-      void api.post('/items/deselect', { id: activeId, targetIndex });
-      void api.post('/items/reorder', { orderedIds: newSource.map((i) => i.id) });
+      void api.post('/items/deselect', { id: activeId, toId });
     }
   };
 

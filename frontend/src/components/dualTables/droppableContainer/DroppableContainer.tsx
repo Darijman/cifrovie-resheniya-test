@@ -8,6 +8,8 @@ interface Props {
 export const DroppableContainer = ({ id, children }: Props) => {
   const { setNodeRef } = useDroppable({ id });
 
+  const { setNodeRef: setEndRef } = useDroppable({ id: `${id}-end` });
+
   return (
     <div
       ref={setNodeRef}
@@ -20,6 +22,17 @@ export const DroppableContainer = ({ id, children }: Props) => {
       }}
     >
       {children}
+
+      <div
+        ref={setEndRef}
+        data-end
+        style={{
+          height: 48,
+          width: '100%',
+          boxSizing: 'border-box',
+          pointerEvents: 'auto',
+        }}
+      />
     </div>
   );
 };
